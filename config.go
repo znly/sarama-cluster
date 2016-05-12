@@ -14,7 +14,12 @@ type Config struct {
 	Group struct {
 		// The strategy to use for the allocation of partitions to consumers (defaults to StrategyRange)
 		PartitionStrategy Strategy
-		Offsets           struct {
+
+		// If true, merge all partitions into a single Messages channel.
+		// If false, user must consume each individual partition. (default true)
+		MergePartitions bool
+
+		Offsets struct {
 			Retry struct {
 				// The numer retries when comitting offsets (defaults to 3).
 				Max int

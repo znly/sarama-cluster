@@ -28,6 +28,7 @@ type Consumer struct {
 	errors        chan error
 	messages      chan *sarama.ConsumerMessage
 	notifications chan *Notification
+	partitions    chan PartitionConsumer
 
 	commitMu sync.Mutex
 }
@@ -51,6 +52,7 @@ func NewConsumerFromClient(client *Client, groupID string, topics []string) (*Co
 		dying: make(chan none),
 		dead:  make(chan none),
 
+		partitions:    make(chan PartitionConsumer, 1),
 		errors:        make(chan error, client.config.ChannelBufferSize),
 		messages:      make(chan *sarama.ConsumerMessage),
 		notifications: make(chan *Notification, 1),
@@ -82,6 +84,11 @@ func NewConsumer(addrs []string, groupID string, topics []string, config *Config
 // Messages returns the read channel for the messages that are returned by
 // the broker.
 func (c *Consumer) Messages() <-chan *sarama.ConsumerMessage { return c.messages }
+
+// Partitions returns the read channels for individual partitions of this broker.
+// This will only return partitions if the MergePartitions configuration option
+// is false; otherwise consume messages from the Messages view.
+func (c *Consumer) Partitions() <-chan PartitionConsumer { return c.partitions }
 
 // Errors returns a read channel of errors that occur during offset management, if
 // enabled. By default, errors are logged and not returned over this channel. If
@@ -179,6 +186,7 @@ func (c *Consumer) Close() (err error) {
 	}
 	close(c.messages)
 	close(c.errors)
+	close(c.partitions)
 
 	if e := c.leaveGroup(); e != nil {
 		err = e
@@ -611,8 +619,18 @@ func (c *Consumer) createConsumer(topic string, partition int32, info offsetInfo
 	// Store in subscriptions
 	c.subs.Store(topic, partition, pc)
 
-	// Start partition consumer goroutine
-	go pc.Loop(c.messages, c.errors)
+	if c.client.config.Group.MergePartitions {
+		// Start partition consumer goroutine
+		go pc.Loop(c.messages, c.errors)
+	} else {
+		wc := &wrapConsumer{
+			address:  topicPartition{topic, partition},
+			pc:       pc,
+			messages: make(chan *sarama.ConsumerMessage),
+		}
+		go wc.Loop(c.errors)
+		c.partitions <- wc
+	}
 
 	return nil
 }

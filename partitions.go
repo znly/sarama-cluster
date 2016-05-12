@@ -197,3 +197,32 @@ func (m *partitionMap) Info() map[string][]int32 {
 	}
 	return info
 }
+
+type PartitionConsumer interface {
+	TopicPartition() (string, int32)
+	Messages() <-chan *sarama.ConsumerMessage
+	Close() error
+}
+
+type wrapConsumer struct {
+	address  topicPartition
+	pc       *partitionConsumer
+	messages chan *sarama.ConsumerMessage
+}
+
+func (c *wrapConsumer) TopicPartition() (string, int32) {
+	return c.address.Topic, c.address.Partition
+}
+
+func (c *wrapConsumer) Messages() <-chan *sarama.ConsumerMessage {
+	return c.messages
+}
+
+func (c *wrapConsumer) Loop(errors chan<- error) {
+	defer close(c.messages)
+	c.pc.Loop(c.messages, errors)
+}
+
+func (c *wrapConsumer) Close() error {
+	return c.pc.Close()
+}
