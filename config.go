@@ -10,6 +10,10 @@ import (
 type Config struct {
 	sarama.Config
 
+	// If true, force the use of Config.Consumer.Offsets.Initial, rather
+	// than use it as a fallback.
+	ForceOffsets bool
+
 	// Group is the namespace for group management properties
 	Group struct {
 		// The strategy to use for the allocation of partitions to consumers (defaults to StrategyRange)

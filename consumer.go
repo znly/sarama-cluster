@@ -553,10 +553,15 @@ func (c *Consumer) fetchOffsets(subs map[string][]int32) (map[string]map[int32]o
 		ConsumerGroup: c.groupID,
 	}
 
+	initialOffset := int64(-1)
+	if c.client.config.ForceOffsets == true {
+		initialOffset = c.client.config.Consumer.Offsets.Initial
+	}
+
 	for topic, partitions := range subs {
 		offsets[topic] = make(map[int32]offsetInfo, len(partitions))
 		for _, partition := range partitions {
-			offsets[topic][partition] = offsetInfo{Offset: -1}
+			offsets[topic][partition] = offsetInfo{Offset: initialOffset}
 			req.AddPartition(topic, partition)
 		}
 	}
@@ -564,30 +569,32 @@ func (c *Consumer) fetchOffsets(subs map[string][]int32) (map[string]map[int32]o
 	// Wait for other cluster consumers to process, release and commit
 	time.Sleep(c.client.config.Consumer.MaxProcessingTime * 2)
 
-	broker, err := c.client.Coordinator(c.groupID)
-	if err != nil {
-		return nil, err
-	}
+	if c.client.config.ForceOffsets == false {
+		broker, err := c.client.Coordinator(c.groupID)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := broker.FetchOffset(req)
+		if err != nil {
+			return nil, err
+		}
 
-	resp, err := broker.FetchOffset(req)
-	if err != nil {
-		return nil, err
-	}
+		for topic, partitions := range subs {
+			for _, partition := range partitions {
+				block := resp.GetBlock(topic, partition)
+				if block == nil {
+					return nil, sarama.ErrIncompleteResponse
+				}
 
-	for topic, partitions := range subs {
-		for _, partition := range partitions {
-			block := resp.GetBlock(topic, partition)
-			if block == nil {
-				return nil, sarama.ErrIncompleteResponse
-			}
-
-			if block.Err == sarama.ErrNoError {
-				offsets[topic][partition] = offsetInfo{Offset: block.Offset, Metadata: block.Metadata}
-			} else {
-				return nil, block.Err
+				if block.Err == sarama.ErrNoError {
+					offsets[topic][partition] = offsetInfo{Offset: block.Offset, Metadata: block.Metadata}
+				} else {
+					return nil, block.Err
+				}
 			}
 		}
 	}
+
 	return offsets, nil
 }
 
