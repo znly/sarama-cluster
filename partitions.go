@@ -201,7 +201,7 @@ func (m *partitionMap) Info() map[string][]int32 {
 type PartitionConsumer interface {
 	TopicPartition() (string, int32)
 	Messages() <-chan *sarama.ConsumerMessage
-	Close() error
+	Close()
 }
 
 type wrapConsumer struct {
@@ -223,6 +223,6 @@ func (c *wrapConsumer) Loop(errors chan<- error) {
 	c.pc.Loop(c.messages, errors)
 }
 
-func (c *wrapConsumer) Close() error {
-	return c.pc.Close()
+func (c *wrapConsumer) Close() {
+	c.pc.Close()
 }
